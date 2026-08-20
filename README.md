@@ -1,70 +1,73 @@
 # Agent Intent Continuity Firewall
 
-A live runtime security gateway for autonomous AI agents. It preserves user intent across multi-step execution and delegation, evaluates every tool action against policy and intent, and blocks actions that exhibit intent drift or privilege escalation.
+A live runtime security gateway for autonomous AI agents. The firewall sits between an agent and protected tools, evaluates intent and authorization before execution, blocks unsafe calls, and produces tamper-evident security evidence.
 
-## Why it exists
+## What is live now
 
-Traditional authorization asks **who can perform an action**. Autonomous agents require a second question: **is this action still consistent with the intent that authorized the workflow?**
-
-This project places an enforcement gateway outside the agent's trust boundary. Protected tools should receive requests only after the gateway authorizes them.
-
-## Current release
-
-This first implementation provides a working HTTP gateway with:
-
-- Structured agent identities and intents
-- Resource/action authorization policies
-- Intent-continuity checks
-- Capability/delegation boundaries
-- Risk scoring
-- SHA-256 hash-chained audit events
-- Automated tests
-- Docker deployment
-
-## Architecture
+The project is no longer only an authorization API. It now exposes a guarded tool-execution boundary:
 
 ```text
-User Intent
-    |
-    v
-+------------------------------+
-| Agent Intent Firewall        |
-|------------------------------|
-| Identity verification        |
-| Intent policy                |
-| Action authorization         |
-| Intent continuity            |
-| Risk evaluation              |
-| Tamper-evident audit chain   |
-+--------------+---------------+
-               |
-          +----+----+
-          |         |
-        ALLOW     BLOCK
-          |         |
-          v         v
-      Real Tool  Security Event
+AI Agent
+   |
+   | tool request
+   v
++---------------------------+
+| Agent Intent Firewall     |
+|---------------------------|
+| Identity                  |
+| Policy                    |
+| Intent continuity         |
+| Risk evaluation           |
+| Execution gate            |
+| Hash-chained audit        |
++-------------+-------------+
+              |
+        +-----+-----+
+        |           |
+      ALLOW        BLOCK
+        |           |
+        v           v
+    Real tool   No execution
 ```
 
-## API
+The important property is **deny before execution**: a tool is invoked only after the gateway has authorized the request.
 
-`POST /v1/authorize` evaluates an agent action.
+## Endpoints
 
-Example request:
+- `GET /health` — service health and registered tools
+- `POST /v1/authorize` — evaluate an action without executing it
+- `POST /v1/tools/execute` — authorize and then execute a registered tool
+- `GET /v1/tools` — list registered tools
+- `GET /v1/audit/verify` — verify the audit hash chain
+
+### Example tool execution
 
 ```json
 {
   "agent_id": "research-agent",
-  "intent": "analyze my repository for security vulnerabilities",
-  "resource": "github:repo",
-  "action": "read",
-  "context": {"owner": "23Karan", "repo": "demo"}
+  "intent": "analyze my workspace",
+  "tool": "workspace.list",
+  "resource": "filesystem:workspace",
+  "action": "list"
 }
 ```
 
-The response contains the decision, risk score, reasons, and audit event hash.
+A blocked request returns no tool result and records the decision in the audit chain.
 
-## Run
+## Current security controls
+
+- Agent identity and capability boundaries
+- Resource/action policy enforcement
+- Intent-continuity checks
+- Delegation restrictions
+- Risk scoring
+- Pre-execution tool gate
+- Unknown-tool blocking
+- SHA-256 hash-chained audit events
+- Automated authorization and execution tests
+- Docker deployment
+
+## Run locally
 
 ```bash
 python -m venv .venv
@@ -73,7 +76,19 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/docs`.
+Open `http://127.0.0.1:8000/docs`.
+
+Run tests:
+
+```bash
+pytest -q
+```
+
+Run the live client example:
+
+```bash
+python examples/live_client.py
+```
 
 ## Docker
 
@@ -85,13 +100,15 @@ docker run --rm -p 8000:8000 agent-intent-firewall
 ## Roadmap
 
 - [x] Runtime authorization gateway
+- [x] Pre-execution tool enforcement
 - [x] Intent continuity enforcement
 - [x] Delegation capability limits
 - [x] Hash-chained audit log
+- [x] Live client example
 - [ ] Persistent event store
-- [ ] Real MCP tool adapter
+- [ ] Real MCP adapter
 - [ ] Agent-to-agent delegation protocol
-- [ ] ML-based semantic intent drift scoring
+- [ ] Semantic intent-drift model
 - [ ] WebSocket live security dashboard
 - [ ] Authentication and mTLS
 - [ ] Production cloud deployment
