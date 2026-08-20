@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .models import ToolExecutionRequest
+from .models import AuthorizationRequest, ToolExecutionRequest
+from .policy import POLICIES, evaluate, intent_consistent
 
 
 @dataclass(frozen=True)
@@ -15,13 +16,7 @@ class MCPTool:
 
 
 class MCPGateway:
-    """Local MCP-like tool boundary.
-
-    Tool handlers are registered here and are never called directly by an
-    agent. The application must authorize the request before invoking a
-    handler. This keeps the execution boundary outside the agent's trust
-    boundary.
-    """
+    """MCP-style execution boundary with mandatory pre-execution authorization."""
 
     def __init__(self) -> None:
         self._tools: dict[str, MCPTool] = {}
@@ -45,7 +40,41 @@ class MCPGateway:
             raise PermissionError("tool metadata does not match requested operation")
         return tool
 
-    def execute_authorized(self, request: ToolExecutionRequest) -> Any:
-        """Execute only after the caller has completed authorization."""
+    def authorize(self, request: ToolExecutionRequest) -> tuple[str, int, list[str]]:
+        auth = AuthorizationRequest(
+            agent_id=request.agent_id,
+            intent=request.intent,
+            resource=request.resource,
+            action=request.action,
+            delegated_by=request.delegated_by,
+            context={"mcp_tool": request.tool},
+        )
+        risk, reasons = evaluate(auth)
+        consistent, continuity_reason = intent_consistent(auth)
+        if not consistent:
+            risk = min(100, risk + 35)
+            reasons.append(continuity_reason or "intent continuity failure")
+        policy = POLICIES.get(request.agent_id)
+        if policy and risk > policy.max_risk:
+            reasons.append(f"risk score {risk} exceeds policy threshold {policy.max_risk}")
+        decision = "allow" if policy and consistent and risk <= policy.max_risk else "block"
+        if decision == "allow" and not reasons:
+            reasons.append("MCP action satisfies authorization and intent continuity")
+        return decision, risk, reasons
+
+    def execute(self, request: ToolExecutionRequest) -> dict[str, Any]:
+        # Resolve metadata before authorization so a caller cannot relabel a tool.
         tool = self.resolve(request)
-        return tool.handler(request.arguments)
+        decision, risk, reasons = self.authorize(request)
+        if decision != "allow":
+            return {"decision": decision, "risk_score": risk, "reasons": reasons, "result": None}
+        try:
+            result = tool.handler(request.arguments)
+        except Exception:
+            return {
+                "decision": "block",
+                "risk_score": 100,
+                "reasons": ["tool execution failed safely"],
+                "result": None,
+            }
+        return {"decision": "allow", "risk_score": risk, "reasons": reasons, "result": result}
