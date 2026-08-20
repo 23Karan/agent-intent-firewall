@@ -27,10 +27,7 @@ class MCPGateway:
         self._tools[tool.name] = tool
 
     def list_tools(self) -> list[dict[str, str]]:
-        return [
-            {"name": t.name, "resource": t.resource, "action": t.action}
-            for t in self._tools.values()
-        ]
+        return [{"name": t.name, "resource": t.resource, "action": t.action} for t in self._tools.values()]
 
     def resolve(self, request: ToolExecutionRequest) -> MCPTool:
         tool = self._tools.get(request.tool)
@@ -41,14 +38,7 @@ class MCPGateway:
         return tool
 
     def authorize(self, request: ToolExecutionRequest) -> tuple[str, int, list[str]]:
-        auth = AuthorizationRequest(
-            agent_id=request.agent_id,
-            intent=request.intent,
-            resource=request.resource,
-            action=request.action,
-            delegated_by=request.delegated_by,
-            context={"mcp_tool": request.tool},
-        )
+        auth = AuthorizationRequest(agent_id=request.agent_id, intent=request.intent, resource=request.resource, action=request.action, delegated_by=request.delegated_by, context={"mcp_tool": request.tool})
         risk, reasons = evaluate(auth)
         consistent, continuity_reason = intent_consistent(auth)
         if not consistent:
@@ -63,18 +53,25 @@ class MCPGateway:
         return decision, risk, reasons
 
     def execute(self, request: ToolExecutionRequest) -> dict[str, Any]:
-        # Resolve metadata before authorization so a caller cannot relabel a tool.
         tool = self.resolve(request)
         decision, risk, reasons = self.authorize(request)
         if decision != "allow":
             return {"decision": decision, "risk_score": risk, "reasons": reasons, "result": None}
         try:
-            result = tool.handler(request.arguments)
+            return {"decision": "allow", "risk_score": risk, "reasons": reasons, "result": tool.handler(request.arguments)}
         except Exception:
-            return {
-                "decision": "block",
-                "risk_score": 100,
-                "reasons": ["tool execution failed safely"],
-                "result": None,
-            }
-        return {"decision": "allow", "risk_score": risk, "reasons": reasons, "result": result}
+            return {"decision": "block", "risk_score": 100, "reasons": ["tool execution failed safely"], "result": None}
+
+    def execute_authorized(self, request: ToolExecutionRequest) -> dict[str, Any]:
+        tool = self.resolve(request)
+        decision, risk, reasons = self.authorize(request)
+        if decision != "allow":
+            return {"status": "blocked", "decision": decision, "risk_score": risk, "reasons": reasons, "result": None}
+        return {"status": "ok", "decision": "allow", "risk_score": risk, "reasons": reasons, "result": tool.handler(request.arguments)}
+
+    def call(self, *, agent_id: str, intent: str, tool_name: str, arguments: dict[str, Any], delegated_by: str | None = None) -> dict[str, Any]:
+        tool = self._tools.get(tool_name)
+        if tool is None:
+            return {"decision": "block", "risk_score": 100, "reasons": [f"unknown MCP tool: {tool_name}"], "result": None}
+        request = ToolExecutionRequest(agent_id=agent_id, intent=intent, tool=tool_name, resource=tool.resource, action=tool.action, arguments=arguments, delegated_by=delegated_by)
+        return self.execute(request)
