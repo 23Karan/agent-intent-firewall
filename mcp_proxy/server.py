@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.mcp_gateway import MCPGateway
 
-a app = FastAPI(title="Agent Intent Firewall MCP Proxy")
+app = FastAPI(title="Agent Intent Firewall MCP Proxy")
 gateway = MCPGateway()
 
 
