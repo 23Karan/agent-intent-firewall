@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 
 from app.mcp_gateway import MCPGateway
 
-app = FastAPI(title="Agent Intent Firewall MCP Proxy")
+a app = FastAPI(title="Agent Intent Firewall MCP Proxy")
 gateway = MCPGateway()
 
 
@@ -13,8 +13,6 @@ def _tool_result(tool_name: str, arguments: dict) -> dict:
     return {"tool": tool_name, "arguments": arguments, "status": "executed"}
 
 
-# Safe demonstration tools. Replace these handlers with adapters to your real
-# MCP server only after authentication and resource restrictions are configured.
 gateway.register(
     __import__("app.mcp_gateway", fromlist=["MCPTool"]).MCPTool(
         name="workspace.list",
@@ -37,8 +35,7 @@ async def mcp(request: Request):
     params = body.get("params") or {}
 
     if method == "tools/list":
-        tools = gateway.list_tools()
-        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": tools}}
+        return {"jsonrpc": "2.0", "id": request_id, "result": {"tools": gateway.list_tools()}}
 
     if method != "tools/call":
         return _jsonrpc_error(request_id, -32601, "Method not supported by security proxy")
@@ -56,15 +53,18 @@ async def mcp(request: Request):
     if tool is None:
         return _jsonrpc_error(request_id, -32602, "Unknown tool")
 
-    decision = gateway.call(
-        agent_id=agent_id,
-        intent=intent,
-        tool_name=name,
-        arguments=arguments,
-    )
+    decision = gateway.call(agent_id=agent_id, intent=intent, tool_name=name, arguments=arguments)
 
     if decision["decision"] != "allow":
-        return _jsonrpc_error(request_id, -32001, "Tool call blocked by Agent Intent Firewall")
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "isError": True,
+                "content": [{"type": "text", "text": "Tool call blocked by Agent Intent Firewall"}],
+                "_meta": {"risk_score": decision["risk_score"], "reasons": decision["reasons"]},
+            },
+        }
 
     return {
         "jsonrpc": "2.0",
