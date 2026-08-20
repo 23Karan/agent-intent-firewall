@@ -21,6 +21,24 @@ class AuthorizationResponse(BaseModel):
     audit_hash: str
 
 
+class ToolExecutionRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=128)
+    intent: str = Field(min_length=1, max_length=1000)
+    tool: str = Field(min_length=1, max_length=128)
+    resource: str = Field(min_length=1, max_length=500)
+    action: str = Field(min_length=1, max_length=100)
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    delegated_by: str | None = None
+
+
+class ToolExecutionResponse(BaseModel):
+    decision: Decision
+    risk_score: int = Field(ge=0, le=100)
+    result: Any | None = None
+    reasons: list[str]
+    audit_hash: str
+
+
 class AgentPolicy(BaseModel):
     allowed_resources: set[str] = Field(default_factory=set)
     allowed_actions: set[str] = Field(default_factory=set)
